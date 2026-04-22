@@ -1,0 +1,47 @@
+buildscript {
+    ext.safeExtGet = { prop, fallback ->
+        rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.5.2")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.20")
+    }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+    namespace = "com.linksense.reactnative"
+    compileSdk safeExtGet("compileSdkVersion", 35)
+
+    defaultConfig {
+        minSdk safeExtGet("minSdkVersion", 24)
+        targetSdk safeExtGet("targetSdkVersion", 35)
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_11
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation "com.facebook.react:react-android"
+    // Pre-release: the LinkSense native Android SDK is referenced here
+    // but commented out until the library ships to Maven Central.
+    // implementation "net.linksense:sdk:0.1.0"
+}

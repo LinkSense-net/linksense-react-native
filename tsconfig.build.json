@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "./lib/typescript",
+    "emitDeclarationOnly": true
+  },
+  "exclude": ["**/__tests__/**", "example"]
+}
