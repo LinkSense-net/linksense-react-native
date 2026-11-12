@@ -1,180 +1,122 @@
-import { NativeEventEmitter, NativeModules } from 'react-native';
+import { Platform } from 'react-native';
 
-import NativeLinkSense from './NativeLinkSense';
+import NativeLinkSense from './LinkSenseModule';
+import { LinkClient } from './links';
 import {
-  CLEAR,
   type CreateLinkOptions,
-  type LinkMetadataValue,
   type LinkSenseConfiguration,
   LinkSenseError,
-  type LinkSenseErrorCode,
   type LinkSenseLink,
   type UpdateLinkOptions,
 } from './types';
 
 export * from './types';
 
+const SDK_KEY_PATTERN = /^ls_sdk_[0-9a-f]{8}_[0-9a-f]{32}$/;
+
 /**
- * Public TS facade. Thin wrapper around the Turbo Module spec — we
- * translate our strongly-typed options into the loose `Object` shape
- * the codegen tolerates, and translate native errors into the typed
- * [LinkSenseError] subclass.
+ * LinkSense for Expo / React Native.
+ *
+ *     await LinkSense.configure({ sdkKey: 'ls_sdk_…' });
+ *     const deepLink = await LinkSense.start(); // deferred deep link, or null
+ *
+ * Universal Links / App Links are observed natively (no AppDelegate or
+ * MainActivity edits): each open is reported to LinkSense. Keep routing them
+ * with Expo Router / `expo-linking` as usual.
  */
 class LinkSense {
-  private emitter: NativeEventEmitter | null = null;
-  private started = false;
+  private links: LinkClient | null = null;
+  private startPromise: Promise<string | null> | null = null;
 
   async configure(configuration: LinkSenseConfiguration): Promise<void> {
+    if (!SDK_KEY_PATTERN.test(configuration.sdkKey)) {
+      throw new LinkSenseError('INVALID_SDK_KEY', 'SDK key must look like ls_sdk_<8 hex>_<32 hex>');
+    }
+    const logLevel = configuration.logLevel ?? 'off';
     try {
-      await NativeLinkSense.configure({
-        sdkKey: configuration.sdkKey,
-        baseUrl: configuration.baseUrl,
-        enableClipboard: configuration.enableClipboard ?? false,
-        enableInstallReferrer: configuration.enableInstallReferrer ?? true,
-        enableFingerprint: configuration.enableFingerprint ?? true,
-        logLevel: configuration.logLevel ?? 'off',
-      });
+      if (Platform.OS === 'ios') {
+        await NativeLinkSense.configure(configuration.sdkKey, configuration.enableClipboard ?? false, logLevel);
+      } else {
+        await NativeLinkSense.configure(
+          configuration.sdkKey,
+          configuration.enableInstallReferrer ?? true,
+          configuration.enableFingerprint ?? true,
+          logLevel,
+        );
+      }
     } catch (error) {
       throw toLinkSenseError(error);
     }
-  }
-
-  async start(): Promise<void> {
-    if (this.started) return;
-    try {
-      await NativeLinkSense.start();
-      this.started = true;
-    } catch (error) {
-      throw toLinkSenseError(error);
-    }
+    this.links = new LinkClient(configuration.sdkKey);
   }
 
   /**
-   * Subscribe to deferred deep links. Returns an unsubscribe function.
-   * Typical pattern:
-   *
-   *     const unsubscribe = LinkSense.onDeferredDeepLink(url => { ... });
-   *     // later: unsubscribe();
+   * Report the install (first launch only) and resolve with the deferred deep
+   * link that brought the user here, or `null`. Call once per launch, after
+   * `configure`; repeated calls return the same promise.
    */
-  onDeferredDeepLink(listener: (url: string | null) => void): () => void {
-    if (this.emitter == null) {
-      // NativeEventEmitter reads `addListener`/`removeListeners` off the
-      // native module for Turbo Modules — the spec surfaces those.
-      const nativeModule = (NativeLinkSense as unknown) || NativeModules.LinkSenseSpec;
-      // NativeEventEmitter's constructor param is minimally typed — the
-      // RN d.ts is `NativeModule | undefined` but accepts any object
-      // with `addListener`/`removeListeners`. Cast via `unknown` so we
-      // don't introduce an unnecessary `any`.
-      this.emitter = new NativeEventEmitter(nativeModule as unknown as never);
+  start(): Promise<string | null> {
+    if (this.startPromise == null) {
+      this.startPromise = NativeLinkSense.start().catch((error: unknown) => {
+        this.startPromise = null;
+        throw toLinkSenseError(error);
+      });
     }
-    const subscription = this.emitter.addListener('onDeferredDeepLink', (raw: string) => {
-      listener(raw != null && raw.length > 0 ? raw : null);
-    });
+    return this.startPromise;
+  }
+
+  /**
+   * Fires when a Universal Link / App Link opened the app, with the URL
+   * LinkSense resolved for it (on the very first launch this can be the
+   * matched deferred link rather than the tapped URL). Returns an unsubscribe.
+   */
+  onDeepLink(listener: (url: string | null) => void): () => void {
+    const subscription = NativeLinkSense.addListener('onDeepLink', event => listener(event.url ?? null));
     return () => subscription.remove();
   }
 
-  async createLink(options: CreateLinkOptions): Promise<LinkSenseLink> {
+  /**
+   * iOS 16+: attribute from a link the user pasted (your own paste UI), with
+   * no system paste prompt. Resolves with the matched deep link, or `null`.
+   * Always `null` on Android, where the Play Install Referrer covers this.
+   */
+  async submitPastedLink(text: string): Promise<string | null> {
+    if (NativeLinkSense.submitPastedLink == null) return null;
     try {
-      const raw = await NativeLinkSense.createLink(serializeCreateOptions(options));
-      return deserializeLink(raw as Record<string, unknown>);
+      return await NativeLinkSense.submitPastedLink(text);
     } catch (error) {
       throw toLinkSenseError(error);
     }
   }
 
-  async getLink(id: string): Promise<LinkSenseLink> {
-    try {
-      const raw = await NativeLinkSense.getLink(id);
-      return deserializeLink(raw as Record<string, unknown>);
-    } catch (error) {
-      throw toLinkSenseError(error);
-    }
+  createLink(options: CreateLinkOptions): Promise<LinkSenseLink> {
+    return this.requireLinks().create(options);
   }
 
-  async updateLink(id: string, options: UpdateLinkOptions): Promise<LinkSenseLink> {
-    try {
-      const raw = await NativeLinkSense.updateLink(id, serializeUpdateOptions(options));
-      return deserializeLink(raw as Record<string, unknown>);
-    } catch (error) {
-      throw toLinkSenseError(error);
-    }
+  getLink(id: string): Promise<LinkSenseLink> {
+    return this.requireLinks().get(id);
   }
 
-  async deleteLink(id: string): Promise<void> {
-    try {
-      await NativeLinkSense.deleteLink(id);
-    } catch (error) {
-      throw toLinkSenseError(error);
-    }
+  updateLink(id: string, options: UpdateLinkOptions): Promise<LinkSenseLink> {
+    return this.requireLinks().update(id, options);
+  }
+
+  deleteLink(id: string): Promise<void> {
+    return this.requireLinks().delete(id);
+  }
+
+  private requireLinks(): LinkClient {
+    if (this.links == null) throw new LinkSenseError('NOT_CONFIGURED', 'Call configure() first');
+    return this.links;
   }
 }
 
 export default new LinkSense();
 
-// --- Serialization helpers ---
-
-function serializeCreateOptions(options: CreateLinkOptions): Record<string, unknown> {
-  const out: Record<string, unknown> = { name: options.name };
-  if (options.desktopUrl != null) out.desktop_url = options.desktopUrl;
-  if (options.slug != null) out.slug = options.slug;
-  if (options.tags != null) out.tags = options.tags;
-  if (options.metadata != null) out.metadata = options.metadata as Record<string, LinkMetadataValue>;
-  if (options.iosClipboardEnabled != null) out.ios_clipboard_enabled = options.iosClipboardEnabled;
-  if (options.iosFallbackUrl != null) out.ios_fallback_url = options.iosFallbackUrl;
-  if (options.androidFallbackUrl != null) out.android_fallback_url = options.androidFallbackUrl;
-  if (options.ogTitle != null) out.og_title = options.ogTitle;
-  if (options.ogDescription != null) out.og_description = options.ogDescription;
-  if (options.ogImageUrl != null) out.og_image_url = options.ogImageUrl;
-  return out;
-}
-
-function serializeUpdateOptions(options: UpdateLinkOptions): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (options.name !== undefined) out.name = options.name;
-  putWithClear(out, 'desktop_url', options.desktopUrl);
-  if (options.tags !== undefined) out.tags = options.tags;
-  putWithClear(out, 'metadata', options.metadata);
-  if (options.iosClipboardEnabled !== undefined) out.ios_clipboard_enabled = options.iosClipboardEnabled;
-  putWithClear(out, 'ios_fallback_url', options.iosFallbackUrl);
-  putWithClear(out, 'android_fallback_url', options.androidFallbackUrl);
-  putWithClear(out, 'og_title', options.ogTitle);
-  putWithClear(out, 'og_description', options.ogDescription);
-  putWithClear(out, 'og_image_url', options.ogImageUrl);
-  return out;
-}
-
-function putWithClear(out: Record<string, unknown>, key: string, value: unknown): void {
-  if (value === undefined) return;
-  out[key] = value === CLEAR ? null : value;
-}
-
-function deserializeLink(raw: Record<string, unknown>): LinkSenseLink {
-  return {
-    id: String(raw.id),
-    projectId: String(raw.project_id),
-    name: String(raw.name),
-    slug: String(raw.custom_path ?? raw.slug ?? ''),
-    fullUrl: String(raw.full_url),
-    desktopUrl: (raw.desktop_url as string | null) ?? null,
-    iosFallbackUrl: (raw.ios_fallback_url as string | null) ?? null,
-    androidFallbackUrl: (raw.android_fallback_url as string | null) ?? null,
-    ogTitle: (raw.og_title as string | null) ?? (raw.social_title as string | null) ?? null,
-    ogDescription: (raw.og_description as string | null) ?? (raw.social_description as string | null) ?? null,
-    ogImageUrl: (raw.og_image_url as string | null) ?? (raw.social_image_url as string | null) ?? null,
-    tags: Array.isArray(raw.tags) ? (raw.tags as unknown[]).map(String) : [],
-    iosClipboardEnabled: Boolean(raw.ios_clipboard_enabled ?? false),
-    createdAt: String(raw.created_at),
-    updatedAt: String(raw.updated_at),
-  };
-}
-
 function toLinkSenseError(error: unknown): LinkSenseError {
   if (error instanceof LinkSenseError) return error;
-  const err = error as { code?: string; message?: string; userInfo?: Record<string, unknown> };
-  const code = (err?.code as LinkSenseErrorCode) ?? 'UNKNOWN';
-  const message = err?.message ?? String(error);
-  const userInfo = err?.userInfo ?? {};
-  const status = typeof userInfo.status === 'number' ? userInfo.status : undefined;
-  const retryAfter = typeof userInfo.retryAfter === 'number' ? userInfo.retryAfter : undefined;
-  return new LinkSenseError(code, message, { status, retryAfter });
+  const err = error as { code?: unknown; message?: unknown } | null;
+  const code = typeof err?.code === 'string' ? err.code : 'UNKNOWN';
+  const message = typeof err?.message === 'string' ? err.message : String(error);
+  return new LinkSenseError(code, message);
 }

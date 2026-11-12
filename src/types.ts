@@ -1,23 +1,17 @@
-/**
- * Public types exposed by `@linksense/react-native`. Strict TS on this
- * side; the Turbo Module spec uses wider `Object` types to satisfy
- * codegen constraints.
- */
+/** Public types exposed by `@linksense/react-native`. */
 
 export type LinkSenseLogLevel = 'off' | 'error' | 'info' | 'debug';
 
 export interface LinkSenseConfiguration {
-  /** Publishable SDK key, format `ls_sdk_<project>_<random>`. */
+  /** Publishable SDK key, format `ls_sdk_<8 hex>_<32 hex>`. */
   sdkKey: string;
-  /** Base URL override. Defaults to `https://linksense.net`. */
-  baseUrl?: string;
-  /** iOS only: opt-in clipboard read on first launch. Default `false`. */
+  /** iOS only: read the clipboard once on first launch (shows the iOS paste prompt). Default `false`. */
   enableClipboard?: boolean;
-  /** Android only: read Play Install Referrer. Default `true`. */
+  /** Android only: read the Play Install Referrer. Default `true`. */
   enableInstallReferrer?: boolean;
-  /** Enable probabilistic fingerprint fallback. Default `true`. */
+  /** Android only: send the probabilistic fingerprint. Default `true`. */
   enableFingerprint?: boolean;
-  /** Default `'off'`. Keep off for production ship. */
+  /** Native SDK logging. Default `'off'`. */
   logLevel?: LinkSenseLogLevel;
 }
 
@@ -34,6 +28,7 @@ export interface LinkSenseLink {
   ogDescription: string | null;
   ogImageUrl: string | null;
   tags: string[];
+  metadata: { [key: string]: LinkMetadataValue } | null;
   iosClipboardEnabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -66,6 +61,7 @@ export interface CreateLinkOptions {
 export const CLEAR: unique symbol = Symbol('LinkSense.CLEAR');
 export type LinkSenseClear = typeof CLEAR;
 
+/** `name`, `tags` and `iosClipboardEnabled` can be changed but not cleared. */
 export interface UpdateLinkOptions {
   name?: string;
   desktopUrl?: string | LinkSenseClear;
@@ -79,28 +75,40 @@ export interface UpdateLinkOptions {
   ogImageUrl?: string | LinkSenseClear;
 }
 
-/** Error codes surfaced via `LinkSenseError.code`. Mirror the server-
- *  side error envelope plus a handful of plugin-local codes. */
+/** `LinkSenseError.code`: SDK-local codes plus every server code, verbatim. */
 export type LinkSenseErrorCode =
   | 'NOT_CONFIGURED'
   | 'INVALID_SDK_KEY'
   | 'NETWORK'
-  | 'FORBIDDEN_CROSS_SCOPE'
-  | 'FORBIDDEN_FIELD'
-  | 'RATE_LIMITED'
   | 'DECODE_FAILURE'
-  | string; // server codes pass through verbatim
+  | 'UNAUTHORIZED'
+  | 'AUTH_REQUIRED'
+  | 'NOT_FOUND'
+  | 'CUSTOM_PATH_EXISTS'
+  | 'INVALID_INPUT'
+  | 'FORBIDDEN_FIELD'
+  | 'FORBIDDEN_CROSS_SCOPE'
+  | 'ACCESS_DENIED'
+  | 'RATE_LIMITED'
+  | (string & {});
 
 export class LinkSenseError extends Error {
   readonly code: LinkSenseErrorCode;
   readonly status?: number;
   readonly retryAfterSeconds?: number;
+  /** For `INVALID_INPUT` / `FORBIDDEN_FIELD`: field path → message. */
+  readonly fieldErrors: Record<string, string>;
 
-  constructor(code: LinkSenseErrorCode, message: string, details?: { status?: number; retryAfter?: number }) {
+  constructor(
+    code: LinkSenseErrorCode,
+    message: string,
+    details?: { status?: number; retryAfter?: number; fieldErrors?: Record<string, string> },
+  ) {
     super(message);
     this.name = 'LinkSenseError';
     this.code = code;
     this.status = details?.status;
     this.retryAfterSeconds = details?.retryAfter;
+    this.fieldErrors = details?.fieldErrors ?? {};
   }
 }

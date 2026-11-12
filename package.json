@@ -1,69 +1,74 @@
 {
   "name": "@linksense/react-native",
-  "version": "0.1.0",
-  "description": "React Native Turbo Module for LinkSense dynamic links and deferred deep linking.",
-  "main": "lib/commonjs/index.js",
-  "module": "lib/module/index.js",
-  "types": "lib/typescript/src/index.d.ts",
-  "source": "src/index",
+  "version": "0.2.0",
+  "description": "LinkSense for Expo and React Native: deferred deep linking, app-open reporting and dynamic links.",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
   "files": [
+    "build",
     "src",
-    "lib",
     "android",
     "ios",
-    "cpp",
-    "LinkSense.podspec",
+    "expo-module.config.json",
+    "LICENSE",
     "!**/__tests__",
-    "!**/__fixtures__",
-    "!**/__mocks__",
-    "!**/.*"
+    "!android/build",
+    "!ios/build"
   ],
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "sync-ios-sdk": "scripts/sync-ios-sdk.sh",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "keywords": [
     "react-native",
+    "expo",
     "linksense",
-    "dynamic-links",
     "deep-linking",
+    "deferred-deep-linking",
     "attribution"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/jankokalj/linksense-react-native.git"
+    "url": "https://github.com/LinkSense-net/linksense-react-native.git"
   },
+  "homepage": "https://linksense.net",
   "author": "LinkSense <support@linksense.net>",
-  "license": "UNLICENSED",
-  "private": false,
+  "license": "SEE LICENSE IN LICENSE",
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
-    "react": ">=18.0.0",
-    "react-native": ">=0.76.0"
+    "expo": ">=53.0.0",
+    "react": "*",
+    "react-native": "*"
   },
   "devDependencies": {
     "@types/jest": "^29.5.13",
-    "@types/react": "^18.3.12",
+    "@types/react": "~19.1.0",
+    "expo": "^54.0.38",
     "jest": "^29.7.0",
-    "react": "18.3.1",
-    "react-native": "0.76.3",
+    "react": "^19.1.4",
+    "react-native": "0.81.6",
     "ts-jest": "^29.2.5",
-    "typescript": "^5.6.3"
+    "typescript": "~5.9.3"
   },
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
     "transform": {
-      "^.+\\.tsx?$": ["ts-jest", { "isolatedModules": true }]
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "isolatedModules": true
+        }
+      ]
     },
-    "modulePathIgnorePatterns": ["<rootDir>/example/node_modules", "<rootDir>/lib/"]
-  },
-  "codegenConfig": {
-    "name": "LinkSenseSpec",
-    "type": "modules",
-    "jsSrcsDir": "src",
-    "android": {
-      "javaPackageName": "com.linksense.reactnative"
-    }
+    "modulePathIgnorePatterns": [
+      "<rootDir>/example/",
+      "<rootDir>/build/"
+    ]
   }
 }

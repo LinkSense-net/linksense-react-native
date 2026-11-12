@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["LinkSenseModule"],
+    "appDelegateSubscribers": ["LinkSenseAppDelegateSubscriber"]
+  },
+  "android": {
+    "modules": ["net.linksense.expo.LinkSenseModule"]
+  }
+}
