@@ -32,7 +32,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/LinkSense-net/linksense-react-native.git"
+    "url": "git+https://github.com/LinkSense-net/linksense-react-native.git"
   },
   "homepage": "https://linksense.net",
   "author": "LinkSense <support@linksense.net>",
