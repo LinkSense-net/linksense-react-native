@@ -1,4 +1,4 @@
-import LinkSense from '@linksense/react-native';
+import LinkSense from '@linksense-net/react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';

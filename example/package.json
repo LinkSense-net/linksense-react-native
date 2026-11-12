@@ -9,7 +9,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@linksense/react-native": "file:..",
+    "@linksense-net/react-native": "file:..",
     "expo": "~54.0.36",
     "expo-build-properties": "~1.0.10",
     "expo-status-bar": "~3.0.9",

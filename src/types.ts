@@ -1,4 +1,4 @@
-/** Public types exposed by `@linksense/react-native`. */
+/** Public types exposed by `@linksense-net/react-native`. */
 
 export type LinkSenseLogLevel = 'off' | 'error' | 'info' | 'debug';
 

@@ -4,7 +4,7 @@ Guidance for Claude Code in this repository.
 
 ## Project
 
-`@linksense/react-native` — an **Expo Module** (expo-modules-core) wrapping the
+`@linksense-net/react-native` — an **Expo Module** (expo-modules-core) wrapping the
 LinkSense native SDKs. Works in Expo (SDK 53+, dev build) and in bare React
 Native with `expo` installed. 0.2.0, proprietary.
 

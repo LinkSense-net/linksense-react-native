@@ -1,4 +1,4 @@
-# @linksense/react-native
+# @linksense-net/react-native
 
 [LinkSense](https://linksense.net) for Expo and React Native: deferred deep
 linking, app-open reporting for Universal Links / App Links, and dynamic-link
@@ -12,7 +12,7 @@ creation. An Expo Module over the native LinkSense iOS and Android SDKs (0.2.0).
 ## Install
 
 ```sh
-npx expo install @linksense/react-native expo-build-properties
+npx expo install @linksense-net/react-native expo-build-properties
 ```
 
 ## Configure the app (`app.json`)
@@ -54,7 +54,7 @@ LinkSense serves the `.well-known` files for you.
 ## Use
 
 ```tsx
-import LinkSense from '@linksense/react-native';
+import LinkSense from '@linksense-net/react-native';
 
 await LinkSense.configure({ sdkKey: process.env.EXPO_PUBLIC_LINKSENSE_SDK_KEY! });
 

@@ -1,5 +1,5 @@
 {
-  "name": "@linksense/react-native",
+  "name": "@linksense-net/react-native",
   "version": "0.2.0",
   "description": "LinkSense for Expo and React Native: deferred deep linking, app-open reporting and dynamic links.",
   "main": "build/index.js",
