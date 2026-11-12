@@ -1,4 +1,5 @@
 import {
+  type AccessDeniedDetails,
   CLEAR,
   type CreateLinkOptions,
   type LinkMetadataValue,
@@ -13,14 +14,18 @@ import {
  * there is nothing for the native SDKs to add.
  */
 
-export const BASE_URL = 'https://linksense.net';
-export const SDK_VERSION = '0.2.0';
+/** Used when the native module exports no `baseUrl` (tests, older native code). */
+export const DEFAULT_BASE_URL = 'https://linksense.net';
+export const SDK_VERSION = '0.3.0';
 
 type FetchLike = typeof fetch;
 
 export class LinkClient {
+  /** `baseUrl` comes from the native SDK build (`NativeLinkSense.baseUrl`), so a
+   *  staging native build talks to staging here too. */
   constructor(
     private readonly sdkKey: string,
+    private readonly baseUrl: string = DEFAULT_BASE_URL,
     private readonly fetchImpl: FetchLike = fetch,
   ) {}
 
@@ -43,7 +48,7 @@ export class LinkClient {
   private async request(method: string, path: string, body?: Record<string, unknown>): Promise<Record<string, unknown>> {
     let response: Response;
     try {
-      response = await this.fetchImpl(`${BASE_URL}${path}`, {
+      response = await this.fetchImpl(`${this.baseUrl.replace(/\/+$/, '')}${path}`, {
         method,
         headers: {
           Authorization: `Bearer ${this.sdkKey}`,
@@ -77,11 +82,18 @@ function linkPath(id: string): string {
   return `/api/sdk/v1/links/${encodeURIComponent(id)}`;
 }
 
+/** Wire codes folded into the cross-SDK vocabulary. */
+const CODE_ALIASES: Record<string, string> = {
+  AUTH_REQUIRED: 'UNAUTHORIZED',
+  CUSTOM_PATH_EXISTS: 'SLUG_EXISTS',
+};
+
 /** Server envelope: `{ error: { code, message, details? } }`. `details` is a
  *  `[{field, message}]` list for validation errors, an object for plan gates. */
 function toServerError(response: Response, json: unknown): LinkSenseError {
   const err = (json as { error?: { code?: unknown; message?: unknown; details?: unknown } } | undefined)?.error;
-  const code = typeof err?.code === 'string' ? err.code : `HTTP_${response.status}`;
+  const rawCode = typeof err?.code === 'string' ? err.code : `HTTP_${response.status}`;
+  const code = CODE_ALIASES[rawCode] ?? rawCode;
   const message = typeof err?.message === 'string' ? err.message : `HTTP ${response.status}`;
   const fieldErrors: Record<string, string> = {};
   if (Array.isArray(err?.details)) {
@@ -94,9 +106,21 @@ function toServerError(response: Response, json: unknown): LinkSenseError {
   const retryHeader = Number(response.headers.get('Retry-After'));
   return new LinkSenseError(code, message, {
     status: response.status,
-    retryAfter: Number.isFinite(retryHeader) && retryHeader > 0 ? retryHeader : undefined,
+    retryAfterSeconds: Number.isFinite(retryHeader) && retryHeader > 0 ? retryHeader : undefined,
     fieldErrors,
+    ...(code === 'ACCESS_DENIED' && { accessDenied: toAccessDenied(message, err?.details) }),
   });
+}
+
+/** `details` is `{upgradeRequired, plan, currentUsage?, limit?}` for plan gates,
+ *  absent for "SDK key not allowed on this platform". */
+function toAccessDenied(serverMessage: string, details: unknown): AccessDeniedDetails {
+  const d = details != null && typeof details === 'object' && !Array.isArray(details) ? (details as Record<string, unknown>) : {};
+  const out: AccessDeniedDetails = { serverMessage, upgradeRequired: d.upgradeRequired === true };
+  if (typeof d.plan === 'string') out.plan = d.plan;
+  if (typeof d.currentUsage === 'number') out.currentUsage = d.currentUsage;
+  if (typeof d.limit === 'number') out.limit = d.limit;
+  return out;
 }
 
 // --- Wire shapes: createDynamicLinkSdkSchema / updateDynamicLinkSdkSchema (strict) ---

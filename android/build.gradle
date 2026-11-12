@@ -1,7 +1,7 @@
 apply plugin: 'com.android.library'
 
 group = 'net.linksense.expo'
-version = '0.2.0'
+version = '0.3.0'
 
 def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
 apply from: expoModulesCorePlugin
@@ -26,7 +26,7 @@ android {
   namespace "net.linksense.expo"
   defaultConfig {
     versionCode 1
-    versionName "0.2.0"
+    versionName "0.3.0"
   }
   lintOptions {
     abortOnError false
@@ -39,5 +39,5 @@ repositories {
 
 dependencies {
   // Keep in step with IOS_SDK_TAG in scripts/sync-ios-sdk.sh.
-  implementation "net.linksense:sdk:0.2.0"
+  implementation "net.linksense:sdk:0.3.0"
 }

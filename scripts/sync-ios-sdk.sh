@@ -11,7 +11,7 @@
 # android/build.gradle so both platforms ship the same SDK version.
 set -euo pipefail
 
-IOS_SDK_TAG="${1:-v0.2.0}"
+IOS_SDK_TAG="${1:-v0.3.0}"
 REPO="https://github.com/LinkSense-net/linksense-ios-sdk.git"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/ios/LinkSenseCore"

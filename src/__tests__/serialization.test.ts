@@ -5,17 +5,20 @@
  */
 
 jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
+const mockNative = {
+  configure: jest.fn().mockResolvedValue(undefined),
+  start: jest.fn().mockResolvedValue(null),
+  submitPastedLink: jest.fn().mockResolvedValue('https://acme.com/maria'),
+  addListener: jest.fn(() => ({ remove: jest.fn() })),
+  baseUrl: undefined as string | undefined,
+};
 jest.mock('expo', () => ({
   NativeModule: class {},
-  requireNativeModule: () => ({
-    configure: jest.fn().mockResolvedValue(undefined),
-    start: jest.fn().mockResolvedValue(null),
-    addListener: jest.fn(() => ({ remove: jest.fn() })),
-  }),
+  requireNativeModule: () => mockNative,
 }));
 
 import LinkSense, { CLEAR, LinkSenseError } from '../index';
-import { LinkClient } from '../links';
+import { DEFAULT_BASE_URL, LinkClient } from '../links';
 
 const KEY = 'ls_sdk_0123abcd_0123456789abcdef0123456789abcdef';
 const ROW = {
@@ -48,7 +51,7 @@ function reply(status: number, body: unknown, headers: Record<string, string> = 
 
 function client(response: Response) {
   const fetchImpl = jest.fn().mockResolvedValue(response);
-  return { links: new LinkClient(KEY, fetchImpl as unknown as typeof fetch), fetchImpl };
+  return { links: new LinkClient(KEY, DEFAULT_BASE_URL, fetchImpl as unknown as typeof fetch), fetchImpl };
 }
 
 function sentBody(fetchImpl: jest.Mock): Record<string, unknown> {
@@ -75,7 +78,7 @@ describe('createLink', () => {
     expect(url).toBe('https://linksense.net/api/sdk/v1/links');
     expect(init.method).toBe('POST');
     expect(init.headers.Authorization).toBe(`Bearer ${KEY}`);
-    expect(init.headers['X-LinkSense-SDK-Version']).toBe('0.2.0');
+    expect(init.headers['X-LinkSense-SDK-Version']).toBe('0.3.0');
   });
 });
 
@@ -109,11 +112,42 @@ describe('errors', () => {
     });
   });
 
-  it('keeps the code when details is an object (plan gate)', async () => {
-    const { links } = client(reply(403, { error: { code: 'ACCESS_DENIED', message: 'Pro only', details: { plan: 'starter' } } }));
+  async function errorFor(status: number, code: string, details?: unknown): Promise<LinkSenseError> {
+    const { links } = client(reply(status, { error: { code, message: 'nope', ...(details !== undefined && { details }) } }));
     const error = await links.create({ name: 'T' }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(LinkSenseError);
-    expect(error).toMatchObject({ code: 'ACCESS_DENIED', fieldErrors: {} });
+    return error as LinkSenseError;
+  }
+
+  it('normalizes AUTH_REQUIRED to UNAUTHORIZED', async () => {
+    expect((await errorFor(401, 'AUTH_REQUIRED')).code).toBe('UNAUTHORIZED');
+    expect((await errorFor(401, 'UNAUTHORIZED')).code).toBe('UNAUTHORIZED');
+  });
+
+  it('normalizes CUSTOM_PATH_EXISTS and SLUG_EXISTS to SLUG_EXISTS', async () => {
+    expect((await errorFor(409, 'CUSTOM_PATH_EXISTS')).code).toBe('SLUG_EXISTS');
+    expect((await errorFor(409, 'SLUG_EXISTS')).code).toBe('SLUG_EXISTS');
+  });
+
+  it('parses full ACCESS_DENIED details (quota reached)', async () => {
+    const error = await errorFor(403, 'ACCESS_DENIED', { upgradeRequired: true, plan: 'starter', currentUsage: 50, limit: 50 });
+    expect(error.code).toBe('ACCESS_DENIED');
+    expect(error.fieldErrors).toEqual({});
+    expect(error.accessDenied).toEqual({ serverMessage: 'nope', upgradeRequired: true, plan: 'starter', currentUsage: 50, limit: 50 });
+  });
+
+  it('parses partial ACCESS_DENIED details (no plan)', async () => {
+    const error = await errorFor(403, 'ACCESS_DENIED', { upgradeRequired: true, plan: 'none' });
+    expect(error.accessDenied).toEqual({ serverMessage: 'nope', upgradeRequired: true, plan: 'none' });
+  });
+
+  it('parses ACCESS_DENIED without details (platform not allowed)', async () => {
+    const error = await errorFor(403, 'ACCESS_DENIED');
+    expect(error.accessDenied).toEqual({ serverMessage: 'nope', upgradeRequired: false });
+  });
+
+  it('sets accessDenied only for ACCESS_DENIED', async () => {
+    expect((await errorFor(404, 'NOT_FOUND')).accessDenied).toBeUndefined();
   });
 
   it('reads Retry-After on 429', async () => {
@@ -122,7 +156,7 @@ describe('errors', () => {
   });
 
   it('wraps a failed fetch as NETWORK', async () => {
-    const links = new LinkClient(KEY, jest.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch);
+    const links = new LinkClient(KEY, DEFAULT_BASE_URL, jest.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch);
     await expect(links.get('l')).rejects.toMatchObject({ code: 'NETWORK' });
   });
 });
@@ -145,12 +179,57 @@ describe('deserialization', () => {
   });
 });
 
+describe('base URL', () => {
+  it('uses the given base URL', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(reply(200, { data: ROW }));
+    await new LinkClient(KEY, 'https://linksense-staging.net/', fetchImpl as unknown as typeof fetch).get('l');
+    expect(fetchImpl.mock.calls[0]![0]).toBe('https://linksense-staging.net/api/sdk/v1/links/l');
+  });
+});
+
 describe('facade', () => {
-  it('rejects a malformed SDK key before touching native code', async () => {
-    await expect(LinkSense.configure({ sdkKey: 'ls_sdk_nope' })).rejects.toMatchObject({ code: 'INVALID_SDK_KEY' });
+  afterEach(() => {
+    mockNative.baseUrl = undefined;
+    jest.restoreAllMocks();
   });
 
+  async function configuredFetchUrl(): Promise<string> {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(reply(200, { data: ROW }));
+    await LinkSense.configure({ sdkKey: KEY });
+    await LinkSense.getLink('l');
+    return fetchSpy.mock.calls[0]![0] as string;
+  }
+
+  // Must run before any successful configure(): the facade is a singleton.
   it('refuses link calls before configure', () => {
     expect(() => LinkSense.getLink('l')).toThrow(LinkSenseError);
   });
+
+  it('rejects a malformed SDK key before touching native code', async () => {
+    mockNative.configure.mockClear();
+    await expect(LinkSense.configure({ sdkKey: 'ls_sdk_nope' })).rejects.toMatchObject({ code: 'INVALID_SDK_KEY' });
+    expect(mockNative.configure).not.toHaveBeenCalled();
+  });
+
+  it('maps a native INVALID_SDK_KEY rejection to LinkSenseError', async () => {
+    mockNative.configure.mockRejectedValueOnce(Object.assign(new Error('SDK key format is invalid.'), { code: 'INVALID_SDK_KEY' }));
+    const error = await LinkSense.configure({ sdkKey: KEY }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LinkSenseError);
+    expect(error).toMatchObject({ code: 'INVALID_SDK_KEY' });
+  });
+
+  it('sends link CRUD to the native baseUrl constant', async () => {
+    mockNative.baseUrl = 'https://linksense-staging.net';
+    expect(await configuredFetchUrl()).toBe('https://linksense-staging.net/api/sdk/v1/links/l');
+  });
+
+  it('falls back to production when native exports no baseUrl', async () => {
+    expect(await configuredFetchUrl()).toBe('https://linksense.net/api/sdk/v1/links/l');
+  });
+
+  it('delegates submitPastedLink to native', async () => {
+    await expect(LinkSense.submitPastedLink('https://acme-42.linksense.net/maria')).resolves.toBe('https://acme.com/maria');
+    expect(mockNative.submitPastedLink).toHaveBeenCalledWith('https://acme-42.linksense.net/maria');
+  });
+
 });

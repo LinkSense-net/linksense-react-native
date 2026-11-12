@@ -6,7 +6,7 @@ Guidance for Claude Code in this repository.
 
 `@linksense-net/react-native` — an **Expo Module** (expo-modules-core) wrapping the
 LinkSense native SDKs. Works in Expo (SDK 53+, dev build) and in bare React
-Native with `expo` installed. 0.2.0, proprietary.
+Native with `expo` installed. 0.3.0, proprietary. Changes are logged in `CHANGELOG.md`.
 
 ## Related repositories
 
@@ -31,13 +31,24 @@ Native with `expo` installed. 0.2.0, proprietary.
 ## Architecture
 
 - **Native does only what must be native:** `configure`, `start` (install +
-  deferred deep link, resolved as the promise value), `submitPastedLink` (iOS),
+  deferred deep link, resolved as the promise value), `submitPastedLink` (iOS;
+  Android exports it too and the native SDK always returns null),
   and observing Universal Links / App Links (`onDeepLink` event + `/open`
   reporting inside the SDKs).
 - **Link CRUD is plain `fetch` in `src/links.ts`** against
-  `https://linksense.net/api/sdk/v1/links`: those routes need only the SDK key,
-  so the native SDKs add nothing. Wire shape is snake_case; `CLEAR` sends JSON
-  null, `undefined` omits.
+  `<baseUrl>/api/sdk/v1/links`: those routes need only the SDK key, so the
+  native SDKs add nothing. `baseUrl` is the native module's `baseUrl` constant
+  (iOS: the vendored core's `BaseURL.value`, so `LINKSENSE_STAGING` builds hit
+  staging; Android: `LinkSense.baseUrl`), falling back to `https://linksense.net`
+  when absent.
+  Wire shape is snake_case; `CLEAR` sends JSON null, `undefined` omits.
+- **Error codes** (`toServerError` in `src/links.ts`): server codes pass through
+  except `AUTH_REQUIRED` → `UNAUTHORIZED` and `CUSTOM_PATH_EXISTS` →
+  `SLUG_EXISTS`. `ACCESS_DENIED` gets `error.accessDenied` parsed from the
+  object `details`; `Retry-After` becomes `retryAfterSeconds`. Native modules
+  map native `LinkSenseError`s to the same codes (`LinkSenseException(error)` on
+  iOS, `toCodedException()` on Android). Keep them in line with the README
+  cross-SDK table.
 - **Link hooks:** iOS `LinkSenseAppDelegateSubscriber`, Android
   `LinkSensePackage` → `LinkSenseActivityListener`. Both only observe (return
   false) so the app's router still handles the link. A link that arrives
@@ -46,4 +57,7 @@ Native with `expo` installed. 0.2.0, proprietary.
 - **iOS pod is `LinkSenseReactNative`**, compiled together with the vendored
   SDK into one Swift module. It must not be named `LinkSense` (clashes with the
   SDK's `LinkSense` class).
-- The SDK key format is validated in JS (`src/index.ts`) for both platforms.
+- The SDK key format is pre-checked in JS (`src/index.ts`); both native
+  `configure`s also throw on a bad key and reject with `INVALID_SDK_KEY`.
+- Building the example against an unpublished `net.linksense:sdk`: pass a Gradle
+  `--init-script` adding `mavenLocal()`; never commit `mavenLocal()`.

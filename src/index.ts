@@ -47,7 +47,7 @@ class LinkSense {
     } catch (error) {
       throw toLinkSenseError(error);
     }
-    this.links = new LinkClient(configuration.sdkKey);
+    this.links = new LinkClient(configuration.sdkKey, NativeLinkSense.baseUrl);
   }
 
   /**
@@ -81,7 +81,6 @@ class LinkSense {
    * Always `null` on Android, where the Play Install Referrer covers this.
    */
   async submitPastedLink(text: string): Promise<string | null> {
-    if (NativeLinkSense.submitPastedLink == null) return null;
     try {
       return await NativeLinkSense.submitPastedLink(text);
     } catch (error) {

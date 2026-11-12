@@ -75,16 +75,17 @@ export interface UpdateLinkOptions {
   ogImageUrl?: string | LinkSenseClear;
 }
 
-/** `LinkSenseError.code`: SDK-local codes plus every server code, verbatim. */
+/** `LinkSenseError.code`: SDK-local codes plus the server codes. Two server
+ *  codes are normalized: `AUTH_REQUIRED` → `UNAUTHORIZED` and
+ *  `CUSTOM_PATH_EXISTS` → `SLUG_EXISTS`. Anything else passes through verbatim. */
 export type LinkSenseErrorCode =
   | 'NOT_CONFIGURED'
   | 'INVALID_SDK_KEY'
   | 'NETWORK'
   | 'DECODE_FAILURE'
   | 'UNAUTHORIZED'
-  | 'AUTH_REQUIRED'
   | 'NOT_FOUND'
-  | 'CUSTOM_PATH_EXISTS'
+  | 'SLUG_EXISTS'
   | 'INVALID_INPUT'
   | 'FORBIDDEN_FIELD'
   | 'FORBIDDEN_CROSS_SCOPE'
@@ -92,23 +93,42 @@ export type LinkSenseErrorCode =
   | 'RATE_LIMITED'
   | (string & {});
 
+/** `ACCESS_DENIED` detail: a link quota was reached, there is no active plan,
+ *  or the SDK key isn't allowed on this platform (then only `serverMessage`). */
+export interface AccessDeniedDetails {
+  serverMessage: string;
+  /** `false` when the server didn't say. */
+  upgradeRequired: boolean;
+  plan?: string;
+  currentUsage?: number;
+  limit?: number;
+}
+
 export class LinkSenseError extends Error {
   readonly code: LinkSenseErrorCode;
   readonly status?: number;
   readonly retryAfterSeconds?: number;
   /** For `INVALID_INPUT` / `FORBIDDEN_FIELD`: field path → message. */
   readonly fieldErrors: Record<string, string>;
+  /** Set when `code` is `ACCESS_DENIED`. */
+  readonly accessDenied?: AccessDeniedDetails;
 
   constructor(
     code: LinkSenseErrorCode,
     message: string,
-    details?: { status?: number; retryAfter?: number; fieldErrors?: Record<string, string> },
+    details?: {
+      status?: number;
+      retryAfterSeconds?: number;
+      fieldErrors?: Record<string, string>;
+      accessDenied?: AccessDeniedDetails;
+    },
   ) {
     super(message);
     this.name = 'LinkSenseError';
     this.code = code;
     this.status = details?.status;
-    this.retryAfterSeconds = details?.retryAfter;
+    this.retryAfterSeconds = details?.retryAfterSeconds;
     this.fieldErrors = details?.fieldErrors ?? {};
+    this.accessDenied = details?.accessDenied;
   }
 }

@@ -2,7 +2,7 @@
 
 [LinkSense](https://linksense.net) for Expo and React Native: deferred deep
 linking, app-open reporting for Universal Links / App Links, and dynamic-link
-creation. An Expo Module over the native LinkSense iOS and Android SDKs (0.2.0).
+creation. An Expo Module over the native LinkSense iOS and Android SDKs (0.3.0).
 
 - **Expo** SDK 53+ with a development build or EAS Build (not Expo Go: this
   package has native code). Bare React Native works too with `expo` installed.
@@ -83,7 +83,7 @@ a "paste your invite link" field, pass the text and LinkSense attributes the
 install with no prompt:
 
 ```tsx
-const deepLink = await LinkSense.submitPastedLink(text); // null on Android
+const deepLink = await LinkSense.submitPastedLink(text); // always null on Android
 ```
 
 `enableClipboard: true` instead reads the clipboard automatically on first
@@ -100,9 +100,21 @@ await LinkSense.deleteLink(link.id);
 ```
 
 Errors are `LinkSenseError` with a `code` (`INVALID_SDK_KEY`, `NOT_CONFIGURED`,
-`NETWORK`, `UNAUTHORIZED`, `NOT_FOUND`, `CUSTOM_PATH_EXISTS`, `INVALID_INPUT`,
-`ACCESS_DENIED`, `RATE_LIMITED`, …), the HTTP `status`, `retryAfterSeconds`
-and, for validation errors, `fieldErrors`.
+`NETWORK`, `UNAUTHORIZED`, `NOT_FOUND`, `SLUG_EXISTS`, `INVALID_INPUT`,
+`ACCESS_DENIED`, `RATE_LIMITED`, …), the HTTP `status`, `retryAfterSeconds`,
+`fieldErrors` for validation errors, and `accessDenied` for `ACCESS_DENIED`:
+
+```tsx
+try {
+  await LinkSense.createLink({ name: 'Invite' });
+} catch (e) {
+  if (e instanceof LinkSenseError && e.code === 'ACCESS_DENIED' && e.accessDenied?.upgradeRequired) {
+    // e.accessDenied: { serverMessage, upgradeRequired, plan?, currentUsage?, limit? }
+  }
+}
+```
+
+Link calls go to the API host the native SDK was built against.
 
 ## Options
 
@@ -120,6 +132,33 @@ No IDFA, no AAID, no ANDROID_ID. See the native SDKs' privacy notes:
 [iOS](https://github.com/LinkSense-net/linksense-ios-sdk/blob/main/PRIVACY.md) ·
 Android (`net.linksense:sdk`, PRIVACY.md in the artifact sources). The iOS
 privacy manifest ships inside this package.
+
+## Cross-SDK API (0.3.0)
+
+The same surface in every LinkSense SDK. Names differ only where the platform idiom does.
+
+| Concept | iOS (Swift) | Android (Kotlin) | Flutter (Dart) | React Native (TS) |
+|---|---|---|---|---|
+| Configure (throws on a malformed key) | `try LinkSense.configure(_:)` | `LinkSense.configure(context, config)` | `await LinkSense.configure(config)` | `LinkSense.configure(config)` |
+| Start / deferred link | `start()` + `onDeferredDeepLink { }` | `start()` + `onDeferredDeepLink { }` | `start()` + `deferredDeepLinks` stream | `await start()` |
+| Link opens | `continueUserActivity(_:handler:)` | `handleIntent(intent) { }` | `deepLinks` stream | `onDeepLink(listener)` |
+| Pasted link | `submitPastedLink(_:completion:)` | `submitPastedLink(text)` (no-op, returns null) | `submitPastedLink(text)` | `submitPastedLink(text)` |
+| Create / get / update / delete | `createLink` / `getLink` / `updateLink` / `deleteLink` | same, `suspend` | same, `Future` | same, `Promise` |
+| Update: leave field / set / clear | `.unchanged` / `.set(v)` / `.clear` | `FieldUpdate.Unchanged` / `Set(v)` / `Clear` | `null` / `FieldUpdate.set(v)` / `FieldUpdate.clear()` | `undefined` / `v` / `CLEAR` |
+| Link metadata | `link.metadata` | `link.metadata` | `link.metadata` | `link.metadata` |
+
+| Error | iOS `LinkSenseError` | Android `LinkSenseError` | Flutter | RN `error.code` |
+|---|---|---|---|---|
+| Not configured | `.notConfigured` | `NotConfigured` | `LinkSenseNotConfiguredException` | `NOT_CONFIGURED` |
+| Malformed SDK key | `.invalidSdkKey` | `InvalidSdkKey` | `LinkSenseInvalidSdkKeyException` | `INVALID_SDK_KEY` |
+| Bad / revoked key | `.unauthorized` | `Unauthorized` | `LinkSenseUnauthorizedException` | `UNAUTHORIZED` |
+| Plan limit / platform not allowed | `.accessDenied(details)` | `AccessDenied(...)` | `LinkSenseAccessDeniedException` | `ACCESS_DENIED` + `error.accessDenied` |
+| Rate limited | `.rateLimited(retryAfterSeconds:)` | `RateLimited(retryAfterSeconds)` | `LinkSenseRateLimitedException.retryAfterSeconds` | `RATE_LIMITED` + `error.retryAfterSeconds` |
+| Slug taken | `.slugExists` | `SlugExists` | `LinkSenseSlugExistsException` | `SLUG_EXISTS` |
+| Validation | `.invalidInput(fieldErrors:)` | `InvalidInput(fieldErrors)` | `LinkSenseInvalidInputException` | `INVALID_INPUT` + `error.fieldErrors` |
+| Not found | `.notFound` | `NotFound` | `LinkSenseNotFoundException` | `NOT_FOUND` |
+
+Access-denied details carry the same fields everywhere: `serverMessage`, `upgradeRequired` (false when absent), `plan`, `currentUsage`, `limit` (each optional).
 
 ## License
 
